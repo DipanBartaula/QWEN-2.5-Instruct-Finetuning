@@ -1,0 +1,14 @@
+transformers>=4.35.0
+datasets>=2.15.0
+torch>=2.0.0
+accelerate>=0.20.0
+wandb>=0.15.0
+evaluate>=0.4.0
+sentencepiece
+tokenizers
+bitsandbytes>=0.40.0
+vllm
+huggingface-hub
+safetensors
+numpy
+omegaconf
