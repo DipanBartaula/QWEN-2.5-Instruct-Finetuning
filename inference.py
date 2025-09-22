@@ -1,71 +1,35 @@
-import argparse
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
+from peft import PeftModel
 
+model_name = "Qwen/Qwen2.5-7B-Instruct"
+checkpoint_path = "./checkpoints/checkpoint-1000.pt"  # replace with your LoRA checkpoint
 
+# Load tokenizer and base model
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+base_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16)
 
-
-def generate(text, model_name_or_path, max_new_tokens=256, device='cuda'):
-tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
-model = AutoModelForCausalLM.from_pretrained(model_name_or_path, device_map='auto', trust_remote_code=True)
-inputs = tokenizer(text, return_tensors='pt').to(model.device)
-out = model.generate(**inputs, max_new_tokens=max_new_tokens)
-return tokenizer.decode(out[0], skip_special_tokens=True)
-
-
-if __name__ == '__main__':
-parser = argparse.ArgumentParser()
-parser.add_argument('--model-path', type=str, required=True)
-parser.add_argument('--prompt', type=str, required=True)
-args = parser.parse_args()
-print(generate(args.prompt, args.model_path))
-
-
---- FILE: test.py ---
-# Test script: argparse + compute perplexity using evaluate
-import argparse
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-import math
-import evaluate
-
-
-
-
-def perplexity(model, tokenizer, texts, batch_size=1, device='cuda'):
-model.to(device)
+# Load LoRA weights
+model = PeftModel.from_pretrained(base_model, checkpoint_path)
 model.eval()
-ppl = []
-for t in texts:
-enc = tokenizer(t, return_tensors='pt', truncation=True)
-input_ids = enc['input_ids'].to(device)
-with torch.no_grad():
-outputs = model(input_ids, labels=input_ids)
-neg_log_likelihood = outputs.loss * input_ids.size(1)
-ppl.append(math.exp((neg_log_likelihood / input_ids.size(1)).item()))
-return sum(ppl) / len(ppl)
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
 
+# Sample prompt
+prompt = "Create a CAD model of a simple cube with a 10mm side length."
 
+# Role-based formatting
+messages = [
+    {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+    {"role": "user", "content": prompt}
+]
+input_text = "\n".join([f"[{m['role']}]: {m['content']}" for m in messages])
 
-def main():
-parser = argparse.ArgumentParser()
-parser.add_argument('--model-path', type=str, required=True)
-parser.add_argument('--test-file', type=str, required=True)
-args = parser.parse_args()
+# Tokenize
+inputs = tokenizer(input_text, return_tensors="pt").to(device)
 
-
-tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=True)
-model = AutoModelForCausalLM.from_pretrained(args.model_path, device_map='auto')
-
-
-with open(args.test_file, 'r', encoding='utf-8') as f:
-texts = [l.strip() for l in f if l.strip()]
-
-
-ppl = perplexity(model, tokenizer, texts[:50], device=model.device)
-print(f'Perplexity on sample: {ppl:.4f}')
-
-
-if __name__ == '__main__':
-main()
+# Generate output
+generated_ids = model.generate(**inputs, max_new_tokens=256)
+output = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+print("Generated Code:\n", output)
